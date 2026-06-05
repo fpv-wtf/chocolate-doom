@@ -16,7 +16,7 @@
 //	DOOM graphics stuff for SDL.
 //
 
-
+#define USE_ARTY 1
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,6 +47,10 @@
 #include "v_video.h"
 #include "w_wad.h"
 #include "z_zone.h"
+
+#ifdef USE_ARTY
+#include "i_arty.h"
+#endif
 
 // These are (1) the window (or the full screen) that our game is rendered to
 // and (2) the renderer that scales the texture (see below) into this window.
@@ -272,6 +276,15 @@ static void SetShowCursor(boolean show)
 
 void I_ShutdownGraphics(void)
 {
+#ifdef USE_ARTY
+    if (initialized) {
+        ARTY_Shutdown();
+        free(I_VideoBuffer);
+        I_VideoBuffer = NULL;
+        initialized = false;
+    }
+    return;
+#endif
     if (initialized)
     {
         SetShowCursor(true);
@@ -477,6 +490,7 @@ void I_GetEvent(void)
     }
 }
 
+void I_ReadEvdev(void);
 //
 // I_StartTic
 //
@@ -487,6 +501,7 @@ void I_StartTic (void)
         return;
     }
 
+    I_ReadEvdev();
     I_GetEvent();
 
     if (usemouse && !nomouse && window_focused)
@@ -703,6 +718,19 @@ static void CreateUpscaledTexture(boolean force)
 //
 void I_FinishUpdate (void)
 {
+#ifdef USE_ARTY
+    if (!initialized || noblit)
+        return;
+
+    if (display_fps_dots) {
+        // optional: keep existing fps dots block
+    }
+
+    V_DrawDiskIcon();
+    ARTY_Update(I_VideoBuffer, palette);
+    V_RestoreDiskBackground();
+    return;
+#endif
     static int lasttic;
     int tics;
     int i;
@@ -1413,8 +1441,19 @@ static void SetVideoMode(void)
     CreateUpscaledTexture(true);
 }
 
+void I_InitEvdev(void);
+
 void I_InitGraphics(void)
 {
+#ifdef USE_ARTY
+    I_InitEvdev();
+    I_VideoBuffer = malloc(SCREENWIDTH * SCREENHEIGHT);
+    memset(I_VideoBuffer, 0, SCREENWIDTH * SCREENHEIGHT);
+    ARTY_Init(SCREENWIDTH, SCREENHEIGHT, 1920, 1080, 60.0f);
+    initialized = true;
+    I_AtExit(I_ShutdownGraphics, true);
+    return;
+#endif
     SDL_Event dummy;
     byte *doompal;
     char *env;

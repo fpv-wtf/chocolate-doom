@@ -28,6 +28,19 @@
 #include "m_argv.h"
 #include "m_config.h"
 
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
+
+#define EVDEV_FWD      87
+#define EVDEV_BACK     83
+#define EVDEV_RIGHT    68
+#define EVDEV_LEFT     65
+#define EVDEV_CROWN    69
+#define EVDEV_BTN1     66
+#define EVDEV_BTN2     77
+#define EVDEV_BTN3     73
+
 static const int scancode_translate_table[] = SCANCODE_TO_KEYS_ARRAY;
 
 // Lookup table for mapping ASCII characters to their equivalent when
@@ -470,4 +483,78 @@ void I_BindInputVariables(void)
     M_BindIntVariable("mouse_threshold",           &mouse_threshold);
     M_BindIntVariable("vanilla_keyboard_mapping",  &vanilla_keyboard_mapping);
     M_BindIntVariable("novert",                    &novert);
+}
+
+static int evfd = -1;
+
+
+void I_InitEvdev(void)
+{
+    evfd = open("/dev/input/event0", O_RDONLY | O_NONBLOCK);
+
+    if (evfd < 0)
+    {
+        perror("open evdev");
+    }
+    else
+    {
+        fprintf(stderr, "evdev opened fd=%d\n", evfd);
+    }
+}
+struct input_event {
+    struct {
+        long tv_sec;
+        long tv_usec;
+    } time;
+
+    unsigned short type;
+    unsigned short code;
+    unsigned int value;
+};
+
+#define EV_KEY 1
+
+static int EvdevToDoomKey(int code)
+{
+    switch (code)
+    {
+        case EVDEV_FWD:   return KEY_UPARROW;
+        case EVDEV_BACK:  return KEY_DOWNARROW;
+        case EVDEV_RIGHT: return KEY_RIGHTARROW;
+        case EVDEV_LEFT:  return KEY_LEFTARROW;
+
+        case EVDEV_BTN1:  return KEY_RCTRL;   // fire
+        case EVDEV_BTN2:  return ' ';         // use
+        case EVDEV_BTN3:  return KEY_ENTER;    // strafe
+        case EVDEV_CROWN: return KEY_ESCAPE;
+
+        default:
+            return 0;
+    }
+}
+
+void I_ReadEvdev(void)
+{
+    struct input_event ie;
+
+    while (read(evfd, &ie, sizeof(ie)) == sizeof(ie))
+    {
+        event_t ev;
+        int key;
+
+        if (ie.type != EV_KEY)
+            continue;
+
+        key = EvdevToDoomKey(ie.code);
+
+        if (key == 0)
+            continue;
+
+        ev.type  = ie.value ? ev_keydown : ev_keyup;
+        ev.data1 = key;
+        ev.data2 = 0;
+        ev.data3 = 0;
+
+        D_PostEvent(&ev);
+    }
 }
